@@ -226,11 +226,7 @@ export function createEntitlements(options = {}) {
     async override(subject, data) {
       if (!subject) throw new Error("override requires a `subject`")
       validateOverride(data, featureUniverse, limitUniverse)
-      const current = (await driver.getState(subject))?.override ?? {}
-      await driver.setOverride(subject, {
-        features: { ...(current.features ?? {}), ...(data.features ?? {}) },
-        limits: { ...(current.limits ?? {}), ...(data.limits ?? {}) },
-      })
+      await driver.mergeOverride(subject, { features: data.features ?? {}, limits: data.limits ?? {} })
       cache.invalidate(subject)
     },
 
@@ -245,20 +241,8 @@ export function createEntitlements(options = {}) {
       if (!subject) throw new Error("clearOverride requires a `subject`")
       if (!keys) {
         await driver.clearOverride(subject)
-        cache.invalidate(subject)
-        return
-      }
-      const current = (await driver.getState(subject))?.override
-      if (current) {
-        const features = { ...(current.features ?? {}) }
-        const limits = { ...(current.limits ?? {}) }
-        for (const k of keys.features ?? []) delete features[k]
-        for (const k of keys.limits ?? []) delete limits[k]
-        if (Object.keys(features).length === 0 && Object.keys(limits).length === 0) {
-          await driver.clearOverride(subject)
-        } else {
-          await driver.setOverride(subject, { features, limits })
-        }
+      } else {
+        await driver.removeOverrideKeys(subject, { features: keys.features ?? [], limits: keys.limits ?? [] })
       }
       cache.invalidate(subject)
     },

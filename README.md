@@ -91,6 +91,7 @@ const entitlements = createEntitlements({
   meter,
 })
 
+// account.id is assigned the "pro" plan, whose tokens limit is 5_000_000
 const quota = await entitlements.check(account.id, "tokens")
 // { allowed: true, used: 84210, remaining: 4915790, limit: 5000000, unit: "tokens", feature: "tokens" }
 
@@ -117,7 +118,7 @@ The **plan catalog** is declared once at construction, the way you declare your 
 
 **Assignments** (which plan a subject is on) and **overrides** (per-subject adjustments) live in postgres and are mutable at runtime. An override shallow-merges over the plan, so you specify only what differs. A subject with no assignment gets `defaultPlan`; `unassign(subject)` removes an assignment and reverts the subject to the default (distinct from assigning the default explicitly, which would not follow a later change to `defaultPlan`).
 
-Overrides accumulate: each `override()` call merges into the subject's existing override rather than replacing it, so granting more seats and later enabling a feature leaves both in place, and overriding a key again updates just that key. `clearOverride(subject)` removes the whole override; `clearOverride(subject, { limits: ["seats"] })` reverts only the named keys and keeps the rest.
+Overrides accumulate: each `override()` call merges into the subject's existing override rather than replacing it, so granting more seats and later enabling a feature leaves both in place, and overriding a key again updates just that key. The merge happens in the database under a row lock, so two concurrent overrides to the same subject both land instead of one clobbering the other. `clearOverride(subject)` removes the whole override; `clearOverride(subject, { limits: ["seats"] })` reverts only the named keys and keeps the rest.
 
 ```js
 await entitlements.override(account.id, { limits: { seats: 50 } })
@@ -132,7 +133,7 @@ Resolved entitlements are cached per subject for a short, configurable window (`
 
 ### `createEntitlements({ driver, plans, defaultPlan, features?, limits?, meter?, cacheTtl?, tracer? })`
 
-Creates a resolver. `driver` is `postgresDriver({ pool })` or `memoryDriver()`. `plans` is the catalog; `defaultPlan` must be one of its keys. `features` and `limits` declare the universe of valid keys (defaulting to the union across plans); when given, plans may only reference declared keys. `meter` is an optional `@prsm/meter` instance, required only for `check()`. `cacheTtl` accepts ms or a string like `"10s"`. `tracer` is an optional `@prsm/trace` tracer.
+Creates a resolver. `driver` is `postgresDriver({ pool })` or `memoryDriver()`. `plans` is the catalog; `defaultPlan` must be one of its keys. `features` and `limits` declare the universe of valid keys (defaulting to the union across plans); when given, plans may only reference declared keys. `meter` is an optional `@prsm/meter` instance, required only for `check()`. `cacheTtl` accepts ms or a string like `"10s"`. `tracer` is an optional `@prsm/trace` tracer; `can()` and `check()` are wrapped in spans when it is present.
 
 ### `entitlements.setup()`
 

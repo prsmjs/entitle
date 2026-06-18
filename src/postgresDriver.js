@@ -56,11 +56,30 @@ export function postgresDriver(options = {}) {
       await pool.query(`delete from ${assignments} where subject = $1`, [subject])
     },
 
-    async setOverride(subject, data) {
+    async mergeOverride(subject, delta) {
       await pool.query(
-        `insert into ${overrides} (subject, data) values ($1, $2)
-         on conflict (subject) do update set data = excluded.data, updated_at = now()`,
-        [subject, JSON.stringify(data)],
+        `insert into ${overrides} (subject, data)
+         values ($1, jsonb_build_object('features', $2::jsonb, 'limits', $3::jsonb))
+         on conflict (subject) do update set
+           data = jsonb_build_object(
+             'features', coalesce(${overrides}.data -> 'features', '{}'::jsonb) || (excluded.data -> 'features'),
+             'limits',   coalesce(${overrides}.data -> 'limits',   '{}'::jsonb) || (excluded.data -> 'limits')
+           ),
+           updated_at = now()`,
+        [subject, JSON.stringify(delta.features ?? {}), JSON.stringify(delta.limits ?? {})],
+      )
+    },
+
+    async removeOverrideKeys(subject, keys) {
+      await pool.query(
+        `update ${overrides} set
+           data = jsonb_build_object(
+             'features', coalesce(data -> 'features', '{}'::jsonb) - $2::text[],
+             'limits',   coalesce(data -> 'limits',   '{}'::jsonb) - $3::text[]
+           ),
+           updated_at = now()
+         where subject = $1`,
+        [subject, keys.features ?? [], keys.limits ?? []],
       )
     },
 

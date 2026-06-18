@@ -105,6 +105,19 @@ export function runEntitleSuite(label, makeDriver) {
       expect(await entitlements.can("a", "sso")).toBe(true)
     })
 
+    it("accumulates concurrent overrides without losing writes", async () => {
+      await entitlements.assign("a", "free")
+      await Promise.all([
+        entitlements.override("a", { features: { sso: true } }),
+        entitlements.override("a", { features: { export: true } }),
+        entitlements.override("a", { limits: { seats: 50 } }),
+        entitlements.override("a", { limits: { tokens: 9000 } }),
+      ])
+      const d = await entitlements.describe("a")
+      expect(d.features).toEqual({ api: true, sso: true, export: true })
+      expect(d.limits).toEqual({ tokens: 9000, seats: 50 })
+    })
+
     it("clearOverride reverts to the plan", async () => {
       await entitlements.assign("a", "free")
       await entitlements.override("a", { features: { sso: true } })

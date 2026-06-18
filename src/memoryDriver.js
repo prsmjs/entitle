@@ -27,8 +27,22 @@ export function memoryDriver() {
       assignments.delete(subject)
     },
 
-    async setOverride(subject, data) {
-      overrides.set(subject, data)
+    async mergeOverride(subject, delta) {
+      const current = overrides.get(subject) ?? { features: {}, limits: {} }
+      overrides.set(subject, {
+        features: { ...(current.features ?? {}), ...(delta.features ?? {}) },
+        limits: { ...(current.limits ?? {}), ...(delta.limits ?? {}) },
+      })
+    },
+
+    async removeOverrideKeys(subject, keys) {
+      const current = overrides.get(subject)
+      if (!current) return
+      const features = { ...(current.features ?? {}) }
+      const limits = { ...(current.limits ?? {}) }
+      for (const k of keys.features ?? []) delete features[k]
+      for (const k of keys.limits ?? []) delete limits[k]
+      overrides.set(subject, { features, limits })
     },
 
     async clearOverride(subject) {
