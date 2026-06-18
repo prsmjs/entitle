@@ -156,25 +156,51 @@ export function createEntitlements(options = {}) {
     },
 
     /**
-     * Layer a per-subject override on top of the subject's plan. Shallow-merges,
-     * so pass only what differs. Takes effect immediately.
+     * Add or adjust a per-subject override, layered on top of the subject's plan.
+     * Merges into any existing override for the subject, so repeated calls
+     * accumulate: overriding `seats`, then later overriding `sso`, leaves both in
+     * place, and overriding a key again updates just that key. Use clearOverride
+     * to remove overrides. Takes effect immediately.
      * @param {string} subject
      * @param {Override} data
      */
     async override(subject, data) {
       if (!subject) throw new Error("override requires a `subject`")
       validateOverride(data)
-      await driver.setOverride(subject, { features: data.features ?? {}, limits: data.limits ?? {} })
+      const current = (await driver.getState(subject))?.override ?? {}
+      await driver.setOverride(subject, {
+        features: { ...(current.features ?? {}), ...(data.features ?? {}) },
+        limits: { ...(current.limits ?? {}), ...(data.limits ?? {}) },
+      })
       cache.invalidate(subject)
     },
 
     /**
-     * Remove a subject's override, falling back to plain plan entitlements.
+     * Remove overrides for a subject. With no `keys`, removes the entire override
+     * and the subject falls back to plain plan entitlements. With `keys`, removes
+     * only those override entries (reverting them to the plan) and keeps the rest.
      * @param {string} subject
+     * @param {{ features?: string[], limits?: string[] }} [keys]
      */
-    async clearOverride(subject) {
+    async clearOverride(subject, keys) {
       if (!subject) throw new Error("clearOverride requires a `subject`")
-      await driver.clearOverride(subject)
+      if (!keys) {
+        await driver.clearOverride(subject)
+        cache.invalidate(subject)
+        return
+      }
+      const current = (await driver.getState(subject))?.override
+      if (current) {
+        const features = { ...(current.features ?? {}) }
+        const limits = { ...(current.limits ?? {}) }
+        for (const k of keys.features ?? []) delete features[k]
+        for (const k of keys.limits ?? []) delete limits[k]
+        if (Object.keys(features).length === 0 && Object.keys(limits).length === 0) {
+          await driver.clearOverride(subject)
+        } else {
+          await driver.setOverride(subject, { features, limits })
+        }
+      }
       cache.invalidate(subject)
     },
 

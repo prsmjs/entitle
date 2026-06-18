@@ -73,12 +73,37 @@ export function runEntitleSuite(label, makeDriver) {
       expect(await entitlements.limit("a", "tokens")).toBe(1000) // untouched plan limit
     })
 
+    it("override accumulates across calls instead of replacing", async () => {
+      await entitlements.assign("a", "free")
+      await entitlements.override("a", { features: { sso: true } })
+      await entitlements.override("a", { limits: { seats: 50 } })
+      expect(await entitlements.can("a", "sso")).toBe(true)
+      expect(await entitlements.limit("a", "seats")).toBe(50)
+    })
+
+    it("override updates a key without dropping the others", async () => {
+      await entitlements.assign("a", "free")
+      await entitlements.override("a", { limits: { seats: 50 } })
+      await entitlements.override("a", { features: { sso: true } })
+      await entitlements.override("a", { limits: { seats: 100 } })
+      expect(await entitlements.limit("a", "seats")).toBe(100)
+      expect(await entitlements.can("a", "sso")).toBe(true)
+    })
+
     it("clearOverride reverts to the plan", async () => {
       await entitlements.assign("a", "free")
       await entitlements.override("a", { features: { sso: true } })
       expect(await entitlements.can("a", "sso")).toBe(true)
       await entitlements.clearOverride("a")
       expect(await entitlements.can("a", "sso")).toBe(false)
+    })
+
+    it("clearOverride with keys removes only those entries", async () => {
+      await entitlements.assign("a", "free")
+      await entitlements.override("a", { features: { sso: true }, limits: { seats: 50 } })
+      await entitlements.clearOverride("a", { limits: ["seats"] })
+      expect(await entitlements.can("a", "sso")).toBe(true) // kept
+      expect(await entitlements.limit("a", "seats")).toBe(1) // reverted to plan
     })
 
     it("describe returns the full effective snapshot", async () => {

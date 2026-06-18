@@ -104,6 +104,15 @@ The **plan catalog** is declared once at construction, the way you declare your 
 
 **Assignments** (which plan a subject is on) and **overrides** (per-subject adjustments) live in postgres and are mutable at runtime. An override shallow-merges over the plan, so you specify only what differs. A subject with no assignment gets `defaultPlan`.
 
+Overrides accumulate: each `override()` call merges into the subject's existing override rather than replacing it, so granting more seats and later enabling a feature leaves both in place, and overriding a key again updates just that key. `clearOverride(subject)` removes the whole override; `clearOverride(subject, { limits: ["seats"] })` reverts only the named keys and keeps the rest.
+
+```js
+await entitlements.override(account.id, { limits: { seats: 50 } })
+await entitlements.override(account.id, { features: { sso: true } }) // seats override stays
+await entitlements.clearOverride(account.id, { limits: ["seats"] })   // seats reverts to plan, sso stays
+await entitlements.clearOverride(account.id)                          // back to plain plan
+```
+
 Resolved entitlements are cached per subject for a short, configurable window (`cacheTtl`, default `"10s"`) and the cache is invalidated immediately on `assign`, `override`, and `clearOverride`, so the instance making a change sees it at once and other instances converge within the TTL. Set `cacheTtl: 0` to read postgres on every call.
 
 ## API
@@ -124,9 +133,9 @@ Assigns a subject to a plan. Takes effect immediately.
 
 Layers a per-subject override on top of the plan. Shallow-merges; pass only what differs.
 
-### `entitlements.clearOverride(subject)`
+### `entitlements.clearOverride(subject, keys?)`
 
-Removes the subject's override.
+With no `keys`, removes the subject's entire override. With `keys` (`{ features?: string[], limits?: string[] }`), removes only those entries and keeps the rest.
 
 ### `entitlements.can(subject, feature)`
 
