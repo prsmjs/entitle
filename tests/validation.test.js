@@ -15,6 +15,8 @@ describe("createEntitlements validation", () => {
       .toThrow(/must be a boolean/)
     expect(() => make({ plans: { free: { limits: { tokens: "1000" } } }, defaultPlan: "free" }))
       .toThrow(/finite number or null/)
+    expect(() => make({ plans: { free: { limits: { tokens: -1 } } }, defaultPlan: "free" }))
+      .toThrow(/must not be negative/)
   })
 
   it("rejects plans that reference an undeclared feature or limit", () => {

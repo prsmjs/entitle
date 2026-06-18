@@ -49,8 +49,12 @@ function assertBoolean(scope, key, v) {
 }
 
 function assertLimitValue(scope, key, v) {
-  if (v !== null && (typeof v !== "number" || !Number.isFinite(v))) {
+  if (v === null) return
+  if (typeof v !== "number" || !Number.isFinite(v)) {
     throw new Error(`${scope} limit "${key}" must be a finite number or null (null means unlimited)`)
+  }
+  if (v < 0) {
+    throw new Error(`${scope} limit "${key}" must not be negative (use 0 to deny, null for unlimited)`)
   }
 }
 
@@ -184,6 +188,12 @@ export function createEntitlements(options = {}) {
     return effective
   }
 
+  async function resolveLimit(subject, key) {
+    requireLimit(key)
+    const eff = await resolve(subject)
+    return key in eff.limits ? eff.limits[key] : 0
+  }
+
   return {
     /** Create the backing tables if they do not exist. Idempotent. */
     setup() {
@@ -282,10 +292,8 @@ export function createEntitlements(options = {}) {
      * @param {string} key
      * @returns {Promise<number|null>}
      */
-    async limit(subject, key) {
-      requireLimit(key)
-      const eff = await resolve(subject)
-      return key in eff.limits ? eff.limits[key] : 0
+    limit(subject, key) {
+      return resolveLimit(subject, key)
     },
 
     /**
@@ -303,7 +311,7 @@ export function createEntitlements(options = {}) {
         throw new Error("check requires a `meter`; pass it to createEntitlements, or use limit() for the static ceiling")
       }
       return traced(tracer, "entitle.check", { "entitle.subject": subject, "entitle.feature": key }, async () => {
-        const limit = await this.limit(subject, key)
+        const limit = await resolveLimit(subject, key)
         const usage = await meter.usage({ ...usageQuery, subject, metric: key })
         const used = usage.quantity
         const allowed = limit === null || used < limit

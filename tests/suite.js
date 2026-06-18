@@ -175,6 +175,21 @@ export function runEntitleSuite(label, makeDriver) {
       await expect(entitlements.override("a", { limits: { storage: 5 } })).rejects.toThrow(/unknown limit/)
     })
 
+    it("methods work when destructured off the instance", async () => {
+      await entitlements.assign("a", "free")
+      meter.set("a", "tokens", 100)
+      const { can, limit, check, plan, describe } = entitlements
+      expect(await can("a", "api")).toBe(true)
+      expect(await limit("a", "tokens")).toBe(1000)
+      expect((await check("a", "tokens")).allowed).toBe(true)
+      expect(await plan("a")).toBe("free")
+      expect((await describe("a")).plan).toBe("free")
+    })
+
+    it("rejects a negative override limit", async () => {
+      await expect(entitlements.override("a", { limits: { seats: -1 } })).rejects.toThrow(/must not be negative/)
+    })
+
     it("check without a meter throws", async () => {
       const noMeter = createEntitlements({ driver: await makeDriver(), plans: PLANS, defaultPlan: "free", features: FEATURES, limits: LIMITS })
       await noMeter.setup()
