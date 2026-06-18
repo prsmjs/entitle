@@ -1,6 +1,6 @@
 {
   "name": "@prsm/entitle",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Plan-based entitlements and feature gating, resolved at runtime, backed by postgres",
   "type": "module",
   "exports": {
