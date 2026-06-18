@@ -11,8 +11,8 @@ import ms from "@prsm/ms"
  * A per-subject override layered on top of the subject's plan. Shallow-merges
  * over the plan, so you only specify what differs (the enterprise customer who
  * negotiated more seats, or got one feature switched on).
- * @property {Record<string, boolean>} [features]
- * @property {Record<string, number|null>} [limits]
+ * @property {Record<string, boolean>} [features] - feature flags to override for this subject; merged over the plan's features, so include only the ones that differ
+ * @property {Record<string, number|null>} [limits] - limit ceilings to override for this subject; merged over the plan's limits, so include only the ones that differ (`null` means unlimited)
  */
 
 /**
@@ -29,9 +29,9 @@ import ms from "@prsm/ms"
 
 /**
  * @typedef {Object} Effective
- * @property {string} plan - the effective plan name
- * @property {Record<string, boolean>} features
- * @property {Record<string, number|null>} limits
+ * @property {string} plan - the effective plan name (the default plan if the subject is unassigned)
+ * @property {Record<string, boolean>} features - the resolved feature flags, after applying the subject's override on top of the plan
+ * @property {Record<string, number|null>} limits - the resolved limit ceilings, after applying the subject's override on top of the plan (`null` means unlimited)
  */
 
 /**
@@ -202,7 +202,7 @@ export function createEntitlements(options = {}) {
 
     /**
      * Assign a subject to a plan. Takes effect immediately.
-     * @param {string} subject
+     * @param {string} subject - the subject identifier (whatever id you key entitlements by, such as an account or user id)
      * @param {string} plan - a key of the plan catalog
      */
     async assign(subject, plan) {
@@ -216,7 +216,7 @@ export function createEntitlements(options = {}) {
      * Remove a subject's plan assignment, reverting them to the default plan.
      * Distinct from assigning the default plan explicitly: an unassigned subject
      * follows `defaultPlan` if it later changes.
-     * @param {string} subject
+     * @param {string} subject - the subject identifier whose assignment is removed
      */
     async unassign(subject) {
       if (!subject) throw new Error("unassign requires a `subject`")
@@ -230,8 +230,8 @@ export function createEntitlements(options = {}) {
      * accumulate: overriding `seats`, then later overriding `sso`, leaves both in
      * place, and overriding a key again updates just that key. Use clearOverride
      * to remove overrides. Takes effect immediately.
-     * @param {string} subject
-     * @param {Override} data
+     * @param {string} subject - the subject identifier to override
+     * @param {Override} data - the features and/or limits to override; merged into any existing override
      */
     async override(subject, data) {
       if (!subject) throw new Error("override requires a `subject`")
@@ -244,8 +244,8 @@ export function createEntitlements(options = {}) {
      * Remove overrides for a subject. With no `keys`, removes the entire override
      * and the subject falls back to plain plan entitlements. With `keys`, removes
      * only those override entries (reverting them to the plan) and keeps the rest.
-     * @param {string} subject
-     * @param {{ features?: string[], limits?: string[] }} [keys]
+     * @param {string} subject - the subject identifier whose override is cleared
+     * @param {{ features?: string[], limits?: string[] }} [keys] - the specific feature and limit keys to revert; omit to clear the entire override
      */
     async clearOverride(subject, keys) {
       if (!subject) throw new Error("clearOverride requires a `subject`")
@@ -259,7 +259,7 @@ export function createEntitlements(options = {}) {
 
     /**
      * The subject's effective plan name (the default plan if unassigned).
-     * @param {string} subject
+     * @param {string} subject - the subject identifier to resolve
      * @returns {Promise<string>}
      */
     async plan(subject) {
@@ -270,8 +270,8 @@ export function createEntitlements(options = {}) {
      * Whether a capability flag is granted to the subject. Throws on a feature
      * key outside the declared/derived universe, so typos surface instead of
      * silently returning false.
-     * @param {string} subject
-     * @param {string} feature
+     * @param {string} subject - the subject identifier to resolve
+     * @param {string} feature - the feature key to check; must be in the declared/derived feature universe
      * @returns {Promise<boolean>}
      */
     async can(subject, feature) {
@@ -288,8 +288,8 @@ export function createEntitlements(options = {}) {
      * subject's plan does not grant - never silently unlimited. Throws on a key
      * outside the declared/derived universe. This is the static ceiling; it does
      * not read usage.
-     * @param {string} subject
-     * @param {string} key
+     * @param {string} subject - the subject identifier to resolve
+     * @param {string} key - the limit key to resolve; must be in the declared/derived limit universe
      * @returns {Promise<number|null>}
      */
     limit(subject, key) {
@@ -301,7 +301,7 @@ export function createEntitlements(options = {}) {
      * reads current usage from the meter for the metric of the same name. This is
      * the composition seam: entitle supplies the limit, meter supplies the usage.
      * Requires a `meter` to have been passed to `createEntitlements`.
-     * @param {string} subject
+     * @param {string} subject - the subject identifier; must match the id usage is recorded under in the meter
      * @param {string} key - a limit key that is also a meter metric
      * @param {{ period?: any, range?: any }} [usageQuery] - forwarded to `meter.usage`
      * @returns {Promise<CheckResult>}
@@ -328,7 +328,7 @@ export function createEntitlements(options = {}) {
 
     /**
      * The subject's full effective entitlements, for a settings or billing page.
-     * @param {string} subject
+     * @param {string} subject - the subject identifier to resolve
      * @returns {Promise<Effective>}
      */
     async describe(subject) {
