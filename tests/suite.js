@@ -7,6 +7,10 @@ export const PLANS = {
   enterprise: { features: { api: true, sso: true, export: true }, limits: { tokens: null, seats: null } },
 }
 
+// `projects` is declared but no plan grants it, to exercise the known-but-unset case
+export const FEATURES = ["api", "sso", "export"]
+export const LIMITS = ["tokens", "seats", "projects"]
+
 function stubMeter() {
   const usage = new Map()
   return {
@@ -29,7 +33,7 @@ export function runEntitleSuite(label, makeDriver) {
     beforeEach(async () => {
       const driver = await makeDriver()
       meter = stubMeter()
-      entitlements = createEntitlements({ driver, plans: PLANS, defaultPlan: "free", meter })
+      entitlements = createEntitlements({ driver, plans: PLANS, defaultPlan: "free", features: FEATURES, limits: LIMITS, meter })
       await entitlements.setup()
     })
 
@@ -52,16 +56,27 @@ export function runEntitleSuite(label, makeDriver) {
       expect(await entitlements.limit("a", "tokens")).toBe(100_000)
     })
 
-    it("can() is false for ungranted and unknown features", async () => {
+    it("can() is false for an ungranted feature", async () => {
       await entitlements.assign("a", "free")
       expect(await entitlements.can("a", "export")).toBe(false)
-      expect(await entitlements.can("a", "nonexistent")).toBe(false)
     })
 
-    it("limit() returns null for unlimited and undeclared keys", async () => {
+    it("can() and limit() throw on a key outside the catalog (typo protection)", async () => {
+      await expect(entitlements.can("a", "nonexistent")).rejects.toThrow(/unknown feature/)
+      await expect(entitlements.limit("a", "storage")).rejects.toThrow(/unknown limit/)
+    })
+
+    it("limit() is null only for explicit unlimited, and 0 for a known-but-unset limit", async () => {
       await entitlements.assign("a", "enterprise")
-      expect(await entitlements.limit("a", "tokens")).toBe(null)
-      expect(await entitlements.limit("a", "undeclared")).toBe(null)
+      expect(await entitlements.limit("a", "tokens")).toBe(null) // explicit unlimited
+      expect(await entitlements.limit("a", "projects")).toBe(0) // declared, granted by no plan -> deny, never unlimited
+    })
+
+    it("unassign reverts a subject to the default plan", async () => {
+      await entitlements.assign("a", "pro")
+      expect(await entitlements.plan("a")).toBe("pro")
+      await entitlements.unassign("a")
+      expect(await entitlements.plan("a")).toBe("free")
     })
 
     it("override merges over the plan and wins", async () => {
@@ -140,13 +155,15 @@ export function runEntitleSuite(label, makeDriver) {
       await expect(entitlements.assign("a", "nope")).rejects.toThrow(/unknown plan/)
     })
 
-    it("rejects malformed overrides", async () => {
+    it("rejects malformed and unknown overrides", async () => {
       await expect(entitlements.override("a", { features: { sso: "yes" } })).rejects.toThrow(/boolean/)
       await expect(entitlements.override("a", { limits: { seats: "lots" } })).rejects.toThrow(/finite number or null/)
+      await expect(entitlements.override("a", { features: { flying: true } })).rejects.toThrow(/unknown feature/)
+      await expect(entitlements.override("a", { limits: { storage: 5 } })).rejects.toThrow(/unknown limit/)
     })
 
     it("check without a meter throws", async () => {
-      const noMeter = createEntitlements({ driver: await makeDriver(), plans: PLANS, defaultPlan: "free" })
+      const noMeter = createEntitlements({ driver: await makeDriver(), plans: PLANS, defaultPlan: "free", features: FEATURES, limits: LIMITS })
       await noMeter.setup()
       await expect(noMeter.check("a", "tokens")).rejects.toThrow(/requires a `meter`/)
       await noMeter.close()

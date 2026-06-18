@@ -23,6 +23,10 @@ export function memoryDriver() {
       assignments.set(subject, plan)
     },
 
+    async unassign(subject) {
+      assignments.delete(subject)
+    },
+
     async setOverride(subject, data) {
       overrides.set(subject, data)
     },

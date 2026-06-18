@@ -52,6 +52,10 @@ export function postgresDriver(options = {}) {
       )
     },
 
+    async unassign(subject) {
+      await pool.query(`delete from ${assignments} where subject = $1`, [subject])
+    },
+
     async setOverride(subject, data) {
       await pool.query(
         `insert into ${overrides} (subject, data) values ($1, $2)

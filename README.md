@@ -30,6 +30,8 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 const entitlements = createEntitlements({
   driver: postgresDriver({ pool }),
   defaultPlan: "free",
+  features: ["api_access", "export_csv", "sso"], // the universe of valid feature keys
+  limits: ["tokens", "seats"],                    // the universe of valid limit keys
   plans: {
     free: {
       features: { api_access: true, export_csv: false, sso: false },
@@ -48,6 +50,8 @@ const entitlements = createEntitlements({
 
 await entitlements.setup() // create tables if they do not exist; idempotent
 ```
+
+Declaring `features` and `limits` up front is the catalog: plans may only reference keys in it, and `can()`/`limit()`/`check()` throw on any other key, so a typo (`can(id, "exprot_csv")`) surfaces instead of silently returning `false`. The declarations are optional - if you omit them the universe is derived from the union of keys across your plans - but declaring them also catches typos in the plan definitions themselves.
 
 Gating a feature and a quota on a request:
 
@@ -95,14 +99,23 @@ if (!quota.allowed) throw new Error("monthly token limit reached")
 
 Because the limit is resolved from the plan and the usage is read from the meter on every call, the same code path enforces a tightened plan, a granted override, and a depleting quota without any of it being baked in at startup.
 
+### Who owns what
+
+Entitle does not track usage. It has no usage state of its own. In the result above, `limit: 5000000` comes from the plan (entitle's only input), `used: 84210` comes from a single live `meter.usage()` call that `check()` makes for you, and `remaining` is just `limit - used`. All accrual happens in your application calling `meter.record(...)` on each usage event; meter stores and aggregates it. So meter owns "how much have they used," entitle owns "what is the ceiling," and `check()` fetches the ceiling, asks meter for the usage, and subtracts. Pass `meter` only to enable that one call - without it, use `limit()` for the ceiling and read usage from meter yourself.
+
+Two things must line up for `check()` to work:
+
+- **Same subject identifier.** `check(subject, key)` calls `meter.usage({ subject, ... })`, so the `subject` you pass here must be the same id you record usage under in meter.
+- **Matching key.** The entitle limit key must equal the meter metric name (`check(id, "tokens")` reads the `tokens` metric). If the metric does not exist in the meter, meter throws.
+
 ## Plans, assignments, and overrides
 
 The **plan catalog** is declared once at construction, the way you declare your pricing tiers in code. A plan grants:
 
 - **features** - a map of capability flags (`{ sso: true, export_csv: false }`), read with `can()`.
-- **limits** - a map of numeric ceilings keyed by name (`{ tokens: 5_000_000, seats: 10 }`), read with `limit()` and enforced with `check()`. A `null` limit means unlimited.
+- **limits** - a map of numeric ceilings keyed by name (`{ tokens: 5_000_000, seats: 10 }`), read with `limit()` and enforced with `check()`. A `null` limit means unlimited; a known limit a plan does not grant resolves to `0` (no allowance), never silently unlimited.
 
-**Assignments** (which plan a subject is on) and **overrides** (per-subject adjustments) live in postgres and are mutable at runtime. An override shallow-merges over the plan, so you specify only what differs. A subject with no assignment gets `defaultPlan`.
+**Assignments** (which plan a subject is on) and **overrides** (per-subject adjustments) live in postgres and are mutable at runtime. An override shallow-merges over the plan, so you specify only what differs. A subject with no assignment gets `defaultPlan`; `unassign(subject)` removes an assignment and reverts the subject to the default (distinct from assigning the default explicitly, which would not follow a later change to `defaultPlan`).
 
 Overrides accumulate: each `override()` call merges into the subject's existing override rather than replacing it, so granting more seats and later enabling a feature leaves both in place, and overriding a key again updates just that key. `clearOverride(subject)` removes the whole override; `clearOverride(subject, { limits: ["seats"] })` reverts only the named keys and keeps the rest.
 
@@ -117,9 +130,9 @@ Resolved entitlements are cached per subject for a short, configurable window (`
 
 ## API
 
-### `createEntitlements({ driver, plans, defaultPlan, meter?, cacheTtl?, tracer? })`
+### `createEntitlements({ driver, plans, defaultPlan, features?, limits?, meter?, cacheTtl?, tracer? })`
 
-Creates a resolver. `driver` is `postgresDriver({ pool })` or `memoryDriver()`. `plans` is the catalog; `defaultPlan` must be one of its keys. `meter` is an optional `@prsm/meter` instance, required only for `check()`. `cacheTtl` accepts ms or a string like `"10s"`. `tracer` is an optional `@prsm/trace` tracer.
+Creates a resolver. `driver` is `postgresDriver({ pool })` or `memoryDriver()`. `plans` is the catalog; `defaultPlan` must be one of its keys. `features` and `limits` declare the universe of valid keys (defaulting to the union across plans); when given, plans may only reference declared keys. `meter` is an optional `@prsm/meter` instance, required only for `check()`. `cacheTtl` accepts ms or a string like `"10s"`. `tracer` is an optional `@prsm/trace` tracer.
 
 ### `entitlements.setup()`
 
@@ -128,6 +141,10 @@ Creates the backing tables if they do not exist. Idempotent.
 ### `entitlements.assign(subject, plan)`
 
 Assigns a subject to a plan. Takes effect immediately.
+
+### `entitlements.unassign(subject)`
+
+Removes a subject's assignment, reverting them to the default plan.
 
 ### `entitlements.override(subject, { features?, limits? })`
 
@@ -139,11 +156,11 @@ With no `keys`, removes the subject's entire override. With `keys` (`{ features?
 
 ### `entitlements.can(subject, feature)`
 
-Returns whether a capability flag is granted (`false` for an ungranted or unknown feature).
+Returns whether a capability flag is granted (`false` for an ungranted feature). Throws on a feature key outside the catalog, so typos surface instead of silently returning `false`.
 
 ### `entitlements.limit(subject, key)`
 
-Returns the numeric ceiling for a limit key after overrides, or `null` for an unlimited or undeclared limit. Does not read usage.
+Returns the numeric ceiling for a limit key after overrides: `null` only for an explicitly unlimited limit, `0` for a known limit the plan does not grant. Throws on a key outside the catalog. Does not read usage.
 
 ### `entitlements.check(subject, key, usageQuery?)`
 
