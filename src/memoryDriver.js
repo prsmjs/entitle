@@ -8,6 +8,9 @@
 export function memoryDriver() {
   const assignments = new Map()
   const overrides = new Map()
+  const touched = new Map()
+
+  const touch = (subject) => touched.set(subject, new Date())
 
   return {
     async setup() {},
@@ -19,12 +22,27 @@ export function memoryDriver() {
       }
     },
 
+    async subjects({ limit }) {
+      const subs = new Set([...assignments.keys(), ...overrides.keys()])
+      return [...subs]
+        .map((subject) => ({
+          subject,
+          assigned: assignments.has(subject),
+          overridden: overrides.has(subject),
+          lastConfiguredAt: touched.get(subject) ?? null,
+        }))
+        .sort((a, b) => (b.lastConfiguredAt?.getTime() ?? 0) - (a.lastConfiguredAt?.getTime() ?? 0) || (a.subject < b.subject ? -1 : 1))
+        .slice(0, limit)
+    },
+
     async assign(subject, plan) {
       assignments.set(subject, plan)
+      touch(subject)
     },
 
     async unassign(subject) {
       assignments.delete(subject)
+      touch(subject)
     },
 
     async mergeOverride(subject, delta) {
@@ -33,6 +51,7 @@ export function memoryDriver() {
         features: { ...(current.features ?? {}), ...(delta.features ?? {}) },
         limits: { ...(current.limits ?? {}), ...(delta.limits ?? {}) },
       })
+      touch(subject)
     },
 
     async removeOverrideKeys(subject, keys) {
@@ -43,10 +62,12 @@ export function memoryDriver() {
       for (const k of keys.features ?? []) delete features[k]
       for (const k of keys.limits ?? []) delete limits[k]
       overrides.set(subject, { features, limits })
+      touch(subject)
     },
 
     async clearOverride(subject) {
       overrides.delete(subject)
+      touch(subject)
     },
 
     async close() {},

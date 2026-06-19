@@ -44,6 +44,28 @@ export function postgresDriver(options = {}) {
       return { plan: r.rows[0].plan ?? null, override: r.rows[0].override ?? null }
     },
 
+    async subjects({ limit }) {
+      const r = await pool.query(
+        `select subject,
+           bool_or(src = 'a') as assigned,
+           bool_or(src = 'o') as overridden,
+           max(updated_at) as last_at
+         from (
+           select subject, updated_at, 'a' as src from ${assignments}
+           union all
+           select subject, updated_at, 'o' as src from ${overrides}
+         ) u
+         group by subject order by last_at desc, subject asc limit $1`,
+        [limit],
+      )
+      return r.rows.map((row) => ({
+        subject: row.subject,
+        assigned: row.assigned,
+        overridden: row.overridden,
+        lastConfiguredAt: row.last_at,
+      }))
+    },
+
     async assign(subject, plan) {
       await pool.query(
         `insert into ${assignments} (subject, plan) values ($1, $2)

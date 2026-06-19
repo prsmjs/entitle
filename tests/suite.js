@@ -174,6 +174,22 @@ export function runEntitleSuite(label, makeDriver) {
       expect(r.remaining).toBe(null)
     })
 
+    it("lists configured subjects with assigned/overridden flags, bounded by limit", async () => {
+      expect(await entitlements.subjects()).toEqual([])
+      await entitlements.assign("a", "pro")
+      await entitlements.override("b", { limits: { seats: 5 } })
+      await entitlements.assign("c", "free")
+      await entitlements.override("c", { features: { sso: true } })
+      const all = await entitlements.subjects()
+      const bySubject = Object.fromEntries(all.map((s) => [s.subject, s]))
+      expect(Object.keys(bySubject).sort()).toEqual(["a", "b", "c"])
+      expect(bySubject.a).toMatchObject({ assigned: true, overridden: false })
+      expect(bySubject.b).toMatchObject({ assigned: false, overridden: true })
+      expect(bySubject.c).toMatchObject({ assigned: true, overridden: true })
+      const capped = await entitlements.subjects({ limit: 2 })
+      expect(capped).toHaveLength(2)
+    })
+
     it("rejects assigning an unknown plan", async () => {
       await expect(entitlements.assign("a", "nope")).rejects.toThrow(/unknown plan/)
     })

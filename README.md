@@ -175,6 +175,10 @@ Returns the subject's effective plan name.
 
 Returns the full effective snapshot `{ plan, features, limits }`, for a settings or billing page.
 
+### `entitlements.subjects({ limit? })`
+
+Lists subjects that have an explicit assignment or override, most-recently-configured first, capped at `limit` (default `100`). Subjects on the default plan with no override are never stored, so they do not appear - this lists the configured subjects, for discovery in dashboards and admin tools. Returns `[{ subject, assigned, overridden, lastConfiguredAt }]`.
+
 ### `entitlements.catalog()`
 
 Returns the static configuration `{ defaultPlan, plans, features, limits }`: every declared plan, the default plan, and the full feature and limit universes. Where `describe` resolves a single subject, `catalog` exposes the whole offering, for a plan comparison table, an admin dashboard, or documenting what the system grants. Subject-independent and read-only, so it never touches storage. The returned object is a fresh copy.

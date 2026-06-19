@@ -358,6 +358,19 @@ export function createEntitlements(options = {}) {
     },
 
     /**
+     * List subjects that have an explicit assignment or override, most-recently-
+     * configured first, capped at `limit` (default 100). Subjects on the default
+     * plan with no override are not stored, so they do not appear - this lists
+     * the configured subjects, for discovery in dashboards and admin tools.
+     * @param {{ limit?: number }} [query]
+     * @returns {Promise<Array<{ subject: string, assigned: boolean, overridden: boolean, lastConfiguredAt: Date|null }>>}
+     */
+    async subjects(query = {}) {
+      if (!driver.subjects) throw new Error("this driver does not support listing subjects")
+      return driver.subjects({ limit: query.limit ?? 100 })
+    },
+
+    /**
      * The subject's full effective entitlements, for a settings or billing page.
      * @param {string} subject - the subject identifier to resolve
      * @returns {Promise<Effective>}
