@@ -35,6 +35,14 @@ import ms from "@prsm/ms"
  */
 
 /**
+ * @typedef {Object} Catalog
+ * @property {string} defaultPlan - the plan applied to a subject with no assignment
+ * @property {Record<string, Plan>} plans - the declared plan catalog (your pricing tiers)
+ * @property {string[]} features - the full feature universe (declared, or derived from the union across plans)
+ * @property {string[]} limits - the full limit universe (declared, or derived from the union across plans)
+ */
+
+/**
  * @typedef {Object} CheckResult
  * @property {boolean} allowed - whether current usage is below the limit (always true when the limit is unlimited)
  * @property {number} used - current usage, read live from the meter
@@ -198,6 +206,29 @@ export function createEntitlements(options = {}) {
     /** Create the backing tables if they do not exist. Idempotent. */
     setup() {
       return driver.setup()
+    },
+
+    /**
+     * The static configuration of this resolver: the plan catalog, the default
+     * plan, and the full feature and limit universes. Unlike describe(), which
+     * resolves a single subject, this exposes every plan and every declared key
+     * - for plan comparison tables, admin dashboards, or documenting what the
+     * system offers. Subject-independent, so it never touches storage. The
+     * returned object is a fresh copy; mutating it does not affect the resolver.
+     * @returns {Catalog}
+     */
+    catalog() {
+      return {
+        defaultPlan,
+        plans: Object.fromEntries(
+          Object.entries(catalog).map(([name, p]) => [name, {
+            features: { ...(p.features ?? {}) },
+            limits: { ...(p.limits ?? {}) },
+          }]),
+        ),
+        features: [...featureUniverse],
+        limits: [...limitUniverse],
+      }
     },
 
     /**

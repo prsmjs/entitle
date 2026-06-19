@@ -41,6 +41,16 @@ export function runEntitleSuite(label, makeDriver) {
       await entitlements.close()
     })
 
+    it("exposes its static catalog without leaking internal state", () => {
+      const cat = entitlements.catalog()
+      expect(cat.defaultPlan).toBe("free")
+      expect(cat.plans).toEqual(PLANS)
+      expect([...cat.features].sort()).toEqual([...FEATURES].sort())
+      expect([...cat.limits].sort()).toEqual([...LIMITS].sort())
+      cat.plans.free.limits.tokens = 999999
+      expect(entitlements.catalog().plans.free.limits.tokens).toBe(1000)
+    })
+
     it("falls back to the default plan when unassigned", async () => {
       expect(await entitlements.plan("a")).toBe("free")
       expect(await entitlements.can("a", "api")).toBe(true)
